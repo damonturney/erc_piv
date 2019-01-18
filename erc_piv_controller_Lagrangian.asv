@@ -1,0 +1,176 @@
+function [x,y,u,v,R_maxs]=erc_piv_controller_Lagrangian(A,B,winsizes,winoverlaps,searchoverlaps,R_threshold,...
+    previous_u,previous_v,R_maxs,maske,sub_pixel,locations_x,locations_y)
+  
+% MQD - minimum quadratic difference method for velocity
+% measurements. 
+%
+% This function implements the method by Gui & Merzkirch (2000). 
+%
+
+
+iis=1:round((1-winoverlaps(2))*winsizes(2)):size(A,2)-winsizes(2);
+jjs=1:round((1-winoverlaps(1))*winsizes(1)):size(A,1)-winsizes(1);
+sizex=length(locations_x);
+sizey=length(locations_y);
+x=zeros(sizey,sizex);
+y=zeros(sizey,sizex);
+u=zeros(sizey,sizex);
+v=zeros(sizey,sizex);
+masked_nodes=zeros(sizey,sizex);
+
+
+if isempty(previous_u) || isempty(previous_v)
+    previous_u=ones(sizey, sizex).*0.123456;
+    previous_v=ones(sizey, sizex).*0.123456;
+end
+if isempty(R_maxs) 
+    R_maxs=zeros(sizey, sizex);
+end
+if ~isempty(maske)
+    maskimage=zeros(size(maske(1).msk));
+    for i=1:length(maske) 
+        maskimage=maskimage+double(maske(i).msk); 
+    end
+else 
+    maskimage=zeros(size(A)); 
+end 
+maskimage(maskimage==1)=NaN;
+
+
+A=A.*abs(maskimage-1);
+B=B.*abs(maskimage-1);
+B_padded=[  ones(size(B,1),6*winsizes(2)).*NaN              B             ones(size(B,1),6*winsizes(2)).*NaN         ];
+B_padded=[  ones(6*winsizes(1),size(B_padded,2)).*NaN      ;B_padded;     ones(6*winsizes(1),size(B_padded,2)).*NaN  ];
+
+
+cj=1;tic
+for jj=round(locations_y-winsizes(2)/2)
+    ci=1;
+    for ii=round(locations_x-winsizes(1)/2)
+        maskimage_subwin=maskimage(jj:jj+winsizes(1)-1,ii:ii+winsizes(2)-1);
+        if (length(maskimage_subwin(:))-sum(isnan(maskimage_subwin(:))))>250
+            masked_nodes(cj,ci)=0;
+            %%%%%%%%%%%%%%%%% calculate the correlation coefficients
+            switch lower(sub_pixel)
+                case {'subpixel'}
+                    %Interpolate to subpixel accuracy 
+                    C=A(jj:jj+winsizes(1)-1,ii:ii+winsizes(2)-1);
+                    D=B_padded(jj+6*winsizes(1)+round(previous_v(cj,ci))-1:...
+                        jj+7*winsizes(1)-1+round(previous_v(cj,ci))+1,...
+                        ii+6*winsizes(2)+round(previous_u(cj,ci))-1:...
+                        ii+7*winsizes(2)-1+round(previous_u(cj,ci))+1);  
+                    C_fine=interp2((1:size(C,1))',1:size(C,2),C,(1:0.2:size(C,1))',(1:0.2:size(C,2)),'cubic');
+                    D_fine=interp2((1:size(D,1))',1:size(D,2),D,(1:0.2:size(D,1))',(1:0.2:size(D,2)),'cubic');
+                    R=erc_R_subpix_light(C_fine,D_fine);
+                    R(R==0.012345)=min(R(:)); 
+                    % Locate the highest point
+                    [ry,rx]=find(R==max(max(R)));
+                    if length(rx)>1 || length(ry)>1 
+                        rx=rx(1);
+                        ry=ry(1);
+                    end
+                    previous_Rmax=R_maxs(cj,ci);
+                    R_maxs(cj,ci)=R(ry,rx);
+                    if R(ry,rx) > R_threshold*0.8
+                        % Store the data
+                        x(cj,ci)=(winsizes(2)/2)+ii-1+0.5;
+                        y(cj,ci)=(winsizes(1)/2)+jj-1+0.5;
+                        u(cj,ci)=(rx-6)*0.2+round(previous_u(cj,ci));
+                        v(cj,ci)=(ry-6)*0.2+round(previous_v(cj,ci));
+                    else
+                        % The current R matrix didn't produce anything good. Store the previous data.  Keep the R_max the same as it already was.
+                        x(cj,ci)=(winsizes(2)/2)+ii-1+0.5;
+                        y(cj,ci)=(winsizes(1)/2)+jj-1+0.5;
+                        u(cj,ci)=previous_u(cj,ci);
+                        v(cj,ci)=previous_v(cj,ci);                 
+                    end                    
+                otherwise
+                    C=A(jj:jj+winsizes(1)-1,ii:ii+winsizes(2)-1);
+                    D=B_padded(jj+6*winsizes(1)+round(previous_v(cj,ci))-round(winsizes(1)*searchoverlaps(1)):...
+                        jj+7*winsizes(1)-1+round(previous_v(cj,ci))+round(winsizes(1)*searchoverlaps(2)),...
+                        ii+6*winsizes(2)+round(previous_u(cj,ci))-round(winsizes(2)*searchoverlaps(3)):...
+                        ii+7*winsizes(2)-1+round(previous_u(cj,ci))+round(winsizes(2)*searchoverlaps(4)));                
+                    R=erc_R(C,D);
+                    %look for garbage and set it equal to a small number
+                    R(R==0.012345)=min(R(:)); 
+                    % Locate the highest point
+                    [ry,rx]=find(R==max(max(R)));
+                    if length(rx)>1 || length(ry)>1 
+                        rx=rx(1);
+                        ry=ry(1);
+                    end
+                    previous_Rmax=R_maxs(cj,ci);
+                    R_maxs(cj,ci)=R(ry,rx);
+                    if R(ry,rx) > R_threshold
+                        x(cj,ci)=(winsizes(2)/2)+ii-1+0.5;
+                        y(cj,ci)=(winsizes(1)/2)+jj-1+0.5;
+                        u(cj,ci)=rx-round(winsizes(2)*searchoverlaps(3))-1+round(previous_u(cj,ci));
+                        v(cj,ci)=ry-round(winsizes(1)*searchoverlaps(1))-1+round(previous_v(cj,ci));
+                    else
+                        % The current R matrix didn't produce anything good. Store the previous data.  Keep the R_max the same as it already was.
+                        x(cj,ci)=(winsizes(2)/2)+ii-1+0.5;
+                        y(cj,ci)=(winsizes(1)/2)+jj-1+0.5;
+                        u(cj,ci)=previous_u(cj,ci);
+                        v(cj,ci)=previous_v(cj,ci); 
+                    end 
+            end
+        else
+            % The window has too many pixels outside the boundaries. Keep the previous velocity and R_max data as it already is.
+            masked_nodes(cj,ci)=1;
+            x(cj,ci)=(winsizes(2)/2)+ii-1+0.5;
+            y(cj,ci)=(winsizes(1)/2)+jj-1+0.5;
+            u(cj,ci)=previous_u(cj,ci);
+            v(cj,ci)=previous_v(cj,ci);
+        end
+        ci=ci+1;
+    end
+    stringlength=double(fprintf('No. of vectors: %d', cj*ci));
+    stringlength=stringlength+double(fprintf(' , Seconds taken: %f', toc));
+    if strcmp(computer,'PCWIN')
+        fprintf('\n')
+    else
+        for w=1:stringlength
+            fprintf('\b')
+        end
+    end
+    cj=cj+1;    
+end
+
+%%%%%%%Now clean up some more of the bad data using neighboring data
+u2=[  zeros(size(u,1),1)      u      zeros(size(u,1),1)  ];
+u2=[  zeros(1,size(u2,2)) ;u2; ones(1,size(u2,2))  ];
+v2=[  zeros(size(v,1),1)      v      zeros(size(v,1),1)  ];
+v2=[  zeros(1,size(v2,2)) ;v2; ones(1,size(v2,2))  ];
+R_maxs2=[  zeros(size(R_maxs,1),1)      R_maxs      zeros(size(R_maxs,1),1)  ];
+R_maxs2=[  zeros(1,size(R_maxs2,2)) ;R_maxs2; zeros(1,size(R_maxs2,2))  ];
+for i=1:3
+    cj=1;
+    for jj=locations_y
+        ci=1;
+        for ii=locations_x
+            if masked_nodes==0;
+                if R_maxs(cj,ci) < R_threshold
+                    % The current R matrix didn't produce anything good. Look
+                    % to neighboring data for help
+                    neighboring_us=[u2(cj-1+1,ci+1) u2(cj-1+1,ci+1+1) u2(cj+1,ci+1+1) u2(cj+1+1,ci+1+1) u2(cj+1+1,ci+1) ...
+                        u2(cj+1+1,ci-1+1) u2(cj+1,ci-1+1) u2(cj-1+1,ci-1+1) previous_u(cj,ci)];
+                    neighboring_vs=[v2(cj-1+1,ci+1) v2(cj-1+1,ci+1+1) v2(cj+1,ci+1+1) v2(cj+1+1,ci+1+1) v2(cj+1+1,ci+1) ...
+                        v2(cj+1+1,ci-1+1) v2(cj+1,ci-1+1) v2(cj-1+1,ci-1+1) previous_v(cj,ci)];
+                    neighboring_R_maxs=[R_maxs2(cj-1+1,ci+1) R_maxs2(cj-1+1,ci+1+1) R_maxs2(cj+1,ci+1+1) R_maxs2(cj+1+1,ci+1+1) ...
+                        R_maxs2(cj+1+1,ci+1) R_maxs2(cj+1+1,ci-1+1) R_maxs2(cj+1,ci-1+1) R_maxs2(cj-1+1,ci-1+1) previous_Rmax];                
+                    if sum(neighboring_R_maxs>R_threshold)>0
+                        u(cj,ci)=mean(neighboring_us(neighboring_R_maxs>R_threshold));
+                        v(cj,ci)=mean(neighboring_vs(neighboring_R_maxs>R_threshold));
+                        R_maxs(cj,ci)=0.85*mean(neighboring_R_maxs(neighboring_R_maxs>R_threshold));
+                    end
+                end 
+            end  
+            ci=ci+1;        
+        end
+        cj=cj+1;    
+    end
+end
+%clean up the vectors that are still -1
+u(u(:)==0.123456)=NaN;
+v(v(:)==0.123456)=NaN;
+fprintf('\n')

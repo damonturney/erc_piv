@@ -1,0 +1,193 @@
+function [x,y,u,v,R_maxs]=mqdcontroller(A,B,winsizes,winoverlaps,searchoverlaps,previous_u,previous_v,R_maxs,maske,sub_pixel)
+  
+% MQD - minimum quadratic difference method for velocity
+% measurements. 
+%
+% This function implements the method by Gui & Merzkirch (2000). 
+%
+
+
+iis=1:round((1-winoverlaps(2))*winsizes(2)):size(A,2)-winsizes(2);
+jjs=1:round((1-winoverlaps(1))*winsizes(1)):size(A,1)-winsizes(1);
+sizex=length(iis);
+sizey=length(jjs);
+x=zeros(sizey,sizex);
+y=zeros(sizey,sizex);
+u=zeros(sizey,sizex);
+v=zeros(sizey,sizex);
+
+
+if isempty(previous_u) || isempty(previous_v)
+    previous_u=zeros(sizey, sizex);
+    previous_v=zeros(sizey, sizex);
+end
+if isempty(R_maxs) 
+    R_maxs=zeros(sizey, sizex);
+end
+if ~isempty(maske)
+    maskimage=zeros(size(maske(1).msk));
+    for i=1:length(maske) 
+        maskimage=maskimage+double(maske(i).msk); 
+    end
+else 
+    maskimage=zeros(size(A)); 
+end 
+maskimage(maskimage==1)=NaN;
+
+
+A=A.*abs(maskimage-1);
+B=B.*abs(maskimage-1);
+B_padded=[  ones(size(B,1),6*winsizes(2)).*NaN              B             ones(size(B,1),6*winsizes(2)).*NaN         ];
+B_padded=[  ones(6*winsizes(1),size(B_padded,2)).*NaN      ;B_padded;     ones(6*winsizes(1),size(B_padded,2)).*NaN  ];
+
+
+cj=1;tic
+for jj=jjs
+    ci=1;
+    for ii=iis 
+        maskimage_subwin=maskimage(jj:jj+winsizes(1)-1,ii:ii+winsizes(2)-1);
+        if (length(maskimage_subwin(:))-sum(isnan(maskimage_subwin(:))))>60
+            %%%%%%%%%%%%%%%%% calculate the correlation coefficients
+            switch lower(sub_pixel)
+                case {'full'}
+                    %Interpolate to subpixel accuracy 
+                    C=A(jj:jj+winsizes(1)-1,ii:ii+winsizes(2)-1);
+                    D=B_padded(jj+6*winsizes(1)+round(previous_v(cj,ci))-1:...
+                        jj+7*winsizes(1)-1+round(previous_v(cj,ci))+1,...
+                        ii+6*winsizes(2)+round(previous_u(cj,ci))-1:...
+                        ii+7*winsizes(2)-1+round(previous_u(cj,ci))+1);  
+                    C_fine=interp2((1:size(C,1))',1:size(C,2),C,(1:0.2:size(C,1))',(1:0.2:size(C,2)),'cubic');
+                    D_fine=interp2((1:size(D,1))',1:size(D,2),D,(1:0.2:size(D,1))',(1:0.2:size(D,2)),'cubic');
+                    R=mqdsolver_subpix_full(C_fine,D_fine);
+                    R(R==0.012345)=min(R(:)); 
+                    % Locate the highest point
+                    [ry,rx]=find(R==max(max(R)));
+                    if length(rx)>1 || length(ry)>1 
+                        rx=rx(1);
+                        ry=ry(1);
+                    end
+                    R_maxs(cj,ci)=R(ry,rx);
+                    if R(ry,rx) > 0.5
+                        % Store the data
+                        x(cj,ci)=(winsizes(2)/2)+ii-1+0.5;
+                        y(cj,ci)=(winsizes(1)/2)+jj-1+0.5;
+                        u(cj,ci)=(rx-6)*0.2+round(previous_u(cj,ci));
+                        v(cj,ci)=(ry-6)*0.2+round(previous_v(cj,ci));
+                    else
+                        % The current R matrix didn't produce anything good. Store the previous data.  Keep the R_max the same as it already was.
+                        x(cj,ci)=(winsizes(2)/2)+ii-1+0.5;
+                        y(cj,ci)=(winsizes(1)/2)+jj-1+0.5;
+                        %u(cj,ci)=previous_u(cj,ci);
+                        %v(cj,ci)=previous_v(cj,ci); 
+                        if ci>1
+                            u(cj,ci)=u(cj,ci-1);
+                            v(cj,ci)=v(cj,ci-1); 
+                        elseif cj>1
+                            u(cj,ci)=u(cj-1,ci);
+                            v(cj,ci)=v(cj-1,ci); 
+                        else
+                            u(cj,ci)=previous_u(cj,ci);
+                            v(cj,ci)=previous_v(cj,ci); 
+                        end                    
+                    end
+                case {'light'}
+                    %Interpolate to subpixel accuracy 
+                    C=A(jj:jj+winsizes(1)-1,ii:ii+winsizes(2)-1);
+                    D=B_padded(jj+6*winsizes(1)+round(previous_v(cj,ci))-1:...
+                        jj+7*winsizes(1)-1+round(previous_v(cj,ci))+1,...
+                        ii+6*winsizes(2)+round(previous_u(cj,ci))-1:...
+                        ii+7*winsizes(2)-1+round(previous_u(cj,ci))+1);  
+                    C_fine=interp2((1:size(C,1))',1:size(C,2),C,(1:0.2:size(C,1))',(1:0.2:size(C,2)),'cubic');
+                    D_fine=interp2((1:size(D,1))',1:size(D,2),D,(1:0.2:size(D,1))',(1:0.2:size(D,2)),'cubic');
+                    R=mqdsolver_subpix_light(C_fine,D_fine);
+                    R(R==0.012345)=min(R(:)); 
+                    % Locate the highest point
+                    [ry,rx]=find(R==max(max(R)));
+                    if length(rx)>1 || length(ry)>1 
+                        rx=rx(1);
+                        ry=ry(1);
+                    end
+                    R_maxs(cj,ci)=R(ry,rx);
+                    if R(ry,rx) > 0.5
+                        % Store the data
+                        x(cj,ci)=(winsizes(2)/2)+ii-1+0.5;
+                        y(cj,ci)=(winsizes(1)/2)+jj-1+0.5;
+                        u(cj,ci)=(rx-6)*0.2+round(previous_u(cj,ci));
+                        v(cj,ci)=(ry-6)*0.2+round(previous_v(cj,ci));
+                    else
+                        % The current R matrix didn't produce anything good. Store the previous data.  Keep the R_max the same as it already was.
+                        x(cj,ci)=(winsizes(2)/2)+ii-1+0.5;
+                        y(cj,ci)=(winsizes(1)/2)+jj-1+0.5;
+                        %u(cj,ci)=previous_u(cj,ci);
+                        %v(cj,ci)=previous_v(cj,ci); 
+                        if ci>1
+                            u(cj,ci)=u(cj,ci-1);
+                            v(cj,ci)=v(cj,ci-1); 
+                        elseif cj>1
+                            u(cj,ci)=u(cj-1,ci);
+                            v(cj,ci)=v(cj-1,ci); 
+                        else
+                            u(cj,ci)=previous_u(cj,ci);
+                            v(cj,ci)=previous_v(cj,ci); 
+                        end                   
+                    end                    
+                otherwise
+                    C=A(jj:jj+winsizes(1)-1,ii:ii+winsizes(2)-1);
+                    D=B_padded(jj+6*winsizes(1)+round(previous_v(cj,ci))-round(winsizes(1)*searchoverlaps(1)):...
+                        jj+7*winsizes(1)-1+round(previous_v(cj,ci))+round(winsizes(1)*searchoverlaps(2)),...
+                        ii+6*winsizes(2)+round(previous_u(cj,ci))-round(winsizes(2)*searchoverlaps(3)):...
+                        ii+7*winsizes(2)-1+round(previous_u(cj,ci))+round(winsizes(2)*searchoverlaps(4)));                
+                    R=mqdsolver7(C,D);
+                    %look for garbage and set it equal to a small number
+                    R(R==0.012345)=min(R(:)); 
+                    % Locate the highest point
+                    [ry,rx]=find(R==max(max(R)));
+                    if length(rx)>1 || length(ry)>1 
+                        rx=rx(1);
+                        ry=ry(1);
+                    end
+                    R_maxs(cj,ci)=R(ry,rx);
+                    if R(ry,rx) > 0.6
+                        x(cj,ci)=(winsizes(2)/2)+ii-1+0.5;
+                        y(cj,ci)=(winsizes(1)/2)+jj-1+0.5;
+                        u(cj,ci)=rx-round(winsizes(2)*searchoverlaps(3))-1+round(previous_u(cj,ci));
+                        v(cj,ci)=ry-round(winsizes(1)*searchoverlaps(1))-1+round(previous_v(cj,ci));
+                    else
+                        % The current R matrix didn't produce anything good. Store the previous data.  Keep the R_max the same as it already was.
+                        x(cj,ci)=(winsizes(2)/2)+ii-1+0.5;
+                        y(cj,ci)=(winsizes(1)/2)+jj-1+0.5;
+                        u(cj,ci)=previous_u(cj,ci);
+                        v(cj,ci)=previous_v(cj,ci); 
+                        if ci>1
+                            u(cj,ci)=u(cj,ci-1);
+                            v(cj,ci)=v(cj,ci-1); 
+                        end
+                        if cj>1
+                            u(cj,ci)=u(cj-1,ci);
+                            v(cj,ci)=v(cj-1,ci); 
+                        end
+                        end
+                    end 
+            end
+            ci=ci+1;
+        else
+            % The window has too many pixels outside the boundaries. Keep the previous velocity and R_max data as it already is.
+            x(cj,ci)=(winsizes(2)/2)+ii-1+0.5;
+            y(cj,ci)=(winsizes(1)/2)+jj-1+0.5;
+            u(cj,ci)=previous_u(cj,ci);
+            v(cj,ci)=previous_v(cj,ci);
+            ci=ci+1;
+        end  
+    end
+    stringlength=double(fprintf('No. of vectors: %d', cj*ci));
+    stringlength=stringlength+double(fprintf(' , Seconds taken: %f', toc));
+    if strcmp(computer,'PCWIN')
+        fprintf('\n')
+    else
+        for w=1:stringlength
+            fprintf('\b')
+        end
+    end
+    cj=cj+1;    
+end
+fprintf('\n')
