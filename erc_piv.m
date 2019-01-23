@@ -99,7 +99,7 @@ end
 % B=noisefiltmqd(B,4,20,0.25);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%% Read in the mask information
-if exist(maskfile,'file')==1
+if exist(maskfile,'file')==2
     if (ischar(maskfile) && ~isempty(maskfile))
         mask=load(maskfile);maske=mask.maske;
     end
@@ -181,15 +181,22 @@ end
 %%%%%%%%%%% Subpixel Calculations
 pix_u=u;
 pix_v=v;
-if strcmp(sub_pixel,'subpixel')
+if (strcmp(sub_pixel,'yes') | strcmp(sub_pixel,'subpixel'))
     disp(['* Subpixel PIV at Winsize: ',num2str(winsizes(i,:))])
     [x,y,pix_u,pix_v,R_maxs]=erc_piv_controller(A,B,winsizes(i,:),winoverlaps(i,:),searchoverlaps(i,:),R_threshold,u,v,R_maxs,maske,sub_pixel,winsizethreshold);
 end
 
 
+%%%%%%% Screen out vectors that are in the masked region
+%[maskx,masky]=meshgrid(1:size(maske.msk,2),1:size(maske.msk,1));
+%interpolated_mask=interp2(maskx,masky,double(maske.msk),x,y);
+%pix_u=pix_u.*interpolated_mask;
+%pix_v=pix_v.*interpolated_mask;
+
+
 %%%%%%%%%%% Give Feedback to the user
 disp(['Average number of pixels moved, x-dir: ' num2str(mean(pix_u(~isnan(pix_u(:)))))])
-disp(['Average number of pixels moved, y-dir: ' num2str(mean(pix_u(~isnan(pix_u(:)))))])
+disp(['Average number of pixels moved, y-dir: ' num2str(mean(pix_v(~isnan(pix_v(:)))))])
 
 %%%%%%%%%%%%%%%% Convert the units of the velocity from pixels/frame to cm/s, Change x y to laboratory coordinates
 u=pix_u/Dt;

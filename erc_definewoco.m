@@ -53,12 +53,12 @@ if ischar(filename)
 else
   A=filename;
 end
-if isrgb(A), A=double(rgb2gray(A)); else, A=double(A); end
+%if isrgb(A), A=double(rgb2gray(A)); else, A=double(A); end
 [ay,ax]=size(A);
 
 my_ver=version;
 my_ver=str2num(my_ver(1:3));
-if my_ver>=6.5, pixval on, end
+%if my_ver>=6.5, pixval on, end
 
 
 if strcmp(typ,'o')==1
