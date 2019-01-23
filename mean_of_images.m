@@ -10,27 +10,18 @@ function [mean_image]=mean_of_images(path2images,image_names,save)
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-
 images_list=dir([path2images image_names]);
-image_list2=char({images_list.name});
+disp([num2str(size(images_list,1)) ' images to average.'])
 
-image_list2(1,1:end)
-sum=double(imread([path2images image_list2(1,1:end)]));
-counter=1;
-
-disp([num2str(length(image_list2)) ' images to average.'])
-
-if length(image_list2)>1
-    for i=2:length(image_list2)
-        counter=counter+1;
-        disp(['On image ' num2str(counter) '.'])
-        sum=sum+double(imread([path2images image_list2(i,1:end)]));
+if size(images_list,1)>1
+    sum=double(imread([path2images images_list(1).name]));
+    for i=1:size(images_list,1)
+        disp(['On image ' num2str(i) '.'])
+        sum=sum+double(imread([path2images images_list(i).name]));
     end
 end
 
-mean_image=uint8(round(sum./counter));
-
-
+mean_image=uint8(round(sum/i));
 
 if save==1
     imwrite(mean_image,[path2images 'a_mean_image.tif'],'tif');

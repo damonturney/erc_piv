@@ -6,7 +6,6 @@ function [x,y,u,v,R_maxs]=erc_piv_controller(A,B,winsizes,winoverlaps,searchover
 % This function implements the method by Gui & Merzkirch (2000). 
 %
 
-
 iis=1:round((1-winoverlaps(2))*winsizes(2)):size(A,2)-winsizes(2);
 jjs=1:round((1-winoverlaps(1))*winsizes(1)):size(A,1)-winsizes(1);
 sizex=length(iis);
@@ -54,7 +53,7 @@ for jj=jjs
             masked_nodes(cj,ci)=0;
             %%%%%%%%%%%%%%%%% calculate the correlation coefficients
             switch lower(sub_pixel)
-                case {'subpixel'}
+                case {'yes','subpixel'}
                     %Interpolate to subpixel accuracy 
                     C=A(jj:jj+winsizes(1)-1,ii:ii+winsizes(2)-1);
                     D=B_padded(jj+6*winsizes(1)+round(previous_v(cj,ci))-1:...
@@ -63,7 +62,7 @@ for jj=jjs
                         ii+7*winsizes(2)-1+round(previous_u(cj,ci))+1);  
                     C_fine=interp2((1:size(C,1))',1:size(C,2),C,(1:0.2:size(C,1))',(1:0.2:size(C,2)),'cubic');
                     D_fine=interp2((1:size(D,1))',1:size(D,2),D,(1:0.2:size(D,1))',(1:0.2:size(D,2)),'cubic');
-                    R=erc_R_subpix_light(C_fine,D_fine);
+                    R=erc_R_subpix_full(C_fine,D_fine);
                     R(R==0.012345)=min(R(:)); 
                     % Locate the highest point
                     [ry,rx]=find(R==max(max(R)));

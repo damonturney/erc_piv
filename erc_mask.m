@@ -30,7 +30,7 @@ function [maske,x,y,u,v]=erc_mask(ima,wocofile,x,y,u,v)
 
 if ischar(ima)
   [A,p1]=imread(ima);
-  if isrgb(A), A=rgb2gray(A); end
+%  if isrgb(A), A=rgb2gray(A); end
   if ~isempty(p1), A=ind2gray(A,p1); end
   
   if nargin==1
